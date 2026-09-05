@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>지진대와 화산대 시뮬레이션</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Leaflet 지도 라이브러리 (CSS + JS) : 무료 오픈소스 지도 라이브러리입니다 -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+
+<!-- MapLibre GL (한국어 라벨을 지원하는 벡터 지도) + Leaflet 연결 플러그인 -->
+<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.20/leaflet-maplibre-gl.js"></script>
+
+<!-- PDF 저장 기능 : 화면을 이미지로 캡처(html2canvas) 후 PDF로 변환(jsPDF) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<!-- 구글 폰트: Noto Sans KR (친근하고 현대적인 고딕) -->
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+
+<style>
+  * { box-sizing:border-box; }
+  html, body {
+    margin:0; padding:20px;
+    font-family: 'Noto Sans KR', sans-serif; font-weight:700; background:#eeeeee;
+  }
+
+  .sheet {
+    border:2px solid #333; background:white;
+    padding:14px;
+  }
+
+  .title {
+    margin:0 0 12px 0; padding-bottom:10px;
+    font-size:20px; font-weight:bold;
+    border-bottom:2px solid #333;
+  }
+
+  #mapBox {
+    height:480px; border:1px solid #333; overflow:hidden; margin-bottom:14px;
+  }
+  #map { width:100%; height:100%; }
+
+  #buttonRow { display:flex; gap:14px; margin-bottom:24px; }
+  #buttonRow button {
+    flex:1; padding:16px 10px; font-size:17px; font-weight:bold;
+    border:1px solid #333; border-radius:4px; cursor:pointer;
+    background:white; color:#222;
+  }
+  #btnQuake.active { background:#ffb703; }
+  #btnVolcano.active { background:#e63946; color:white; }
+  #buttonRow button:hover { background:#f0f0f0; }
+  #btnQuake.active:hover { background:#ffb703; }
+  #btnVolcano.active:hover { background:#e63946; }
+
+  /* 정보박스(팝업)를 메모지 느낌으로 스타일링 */
+  .leaflet-popup-content-wrapper { border-radius:6px; padding:0; overflow:hidden; }
+  .leaflet-popup-content { margin:0; width:230px !important; font-size:13px; line-height:1.5; }
+  .info-box-header { padding:8px 10px; font-weight:bold; color:white; font-size:14px; }
+  .info-box-body { padding:8px 10px; }
+  .quake-popup .info-box-header { background:#e07a1f; }
+  .volcano-popup .info-box-header { background:#c62828; }
+
+  /* ===== 학습지 영역 ===== */
+  .worksheet { font-size:15px; line-height:1.7; }
+  .worksheet p { margin:6px 0; }
+  .worksheet ol { margin:6px 0 14px 0; padding-left:20px; }
+
+  .answer-box {
+    width:100%; border:1px solid #333; border-radius:4px;
+    padding:10px; font-size:14px; font-family:inherit; resize:vertical;
+    margin:6px 0 22px 0;
+  }
+
+  .blank {
+    display:inline-block; min-width:80px; border-bottom:2px solid #333;
+    text-align:center; font-weight:bold; color:#1a5fd0; padding:0 4px;
+  }
+
+  .choice-row { display:flex; gap:14px; margin:12px 0 24px 0; }
+  .choice-btn {
+    flex:1; padding:14px 10px; font-size:16px; font-weight:bold;
+    border:1px solid #333; border-radius:4px; cursor:pointer; background:white;
+  }
+  .choice-btn:hover { background:#f0f0f0; }
+  .choice-btn.selected-correct { background:#2e7d32; color:white; border-color:#1b5e20; }
+  .choice-btn.selected-wrong { background:#c62828; color:white; border-color:#8e0000; }
+
+  .feedback3-box { margin:10px 0 24px 0; min-height:40px; display:flex; align-items:center; gap:10px; }
+  .feedback-correct { font-size:20px; font-weight:bold; color:#2e7d32; }
+  .feedback-wrong { font-size:20px; font-weight:bold; color:#c62828; }
+  .retry-btn {
+    padding:10px 16px; font-size:15px; font-weight:bold;
+    border:1px solid #c62828; background:#ffebee; color:#c62828;
+    border-radius:4px; cursor:pointer;
+  }
+  .retry-btn:hover { background:#ffcdd2; }
+
+  #pdfBtn {
+    display:block; margin:10px auto 4px auto; padding:12px 24px;
+    font-size:16px; font-weight:bold; color:white; background:#1a5fd0;
+    border:none; border-radius:6px; cursor:pointer;
+  }
+  #pdfBtn:hover { background:#164a9e; }
+  #pdfStatus { text-align:center; font-size:13px; color:#666; margin-top:6px; }
+</style>
+</head>
+<body>
+
+<div class="sheet">
+  <div class="title">Ⅰ. 화산과 지진대</div>
+
+  <div id="mapBox">
+    <div id="map"></div>
+  </div>
+
+  <div id="buttonRow">
+    <button id="btnQuake" onclick="토글지진()">지진</button>
+    <button id="btnVolcano" onclick="토글화산()">화산</button>
+    <button id="btnClear" onclick="모두삭제()">모두 삭제</button>
+  </div>
+
+  <div class="worksheet">
+    <p><strong>How to use.</strong></p>
+    <ol>
+      <li>버튼을 클릭하며 지진과 화산 발생 데이터를 지도에 나타내 보세요.</li>
+      <li>지진과 화산의 분포는 어떤 모양을 보이나요?</li>
+    </ol>
+    <textarea class="answer-box" rows="2"></textarea>
+
+    <p>
+      3. 지진과 화산은 <span id="blank3" class="blank">&nbsp;</span> 과 비슷한 분포를 보인다.
+      <span id="blank3b" class="blank">&nbsp;</span>는?
+    </p>
+    <div class="choice-row">
+      <button class="choice-btn" onclick="선택지고르기(this,'판의 경계')">판의 경계</button>
+      <button class="choice-btn" onclick="선택지고르기(this,'대륙의 경계')">대륙의 경계</button>
+      <button class="choice-btn" onclick="선택지고르기(this,'해안선')">해안선</button>
+    </div>
+    <div id="feedback3" class="feedback3-box"></div>
+
+    <p>
+      4. 화산(지진)의 데이터를 클릭하면, 해당 정보들이 보입니다. 이 정보들을 토대로, 하나의
+      지진(화산)을 정해서 자료 조사를 통해 구체적인 정보를 아래에 적어보세요.
+    </p>
+    <textarea class="answer-box" rows="4"></textarea>
+  </div>
+
+  <button id="pdfBtn" onclick="저장하기_PDF()">📄 학습지 PDF로 저장하기</button>
+  <div id="pdfStatus"></div>
+</div>
+
+<script>
+// =========================================================
+// 1) 지도 기본 설정 : 세계지도를 화면에 띄웁니다
+// =========================================================
+var map = L.map('map', { worldCopyJump: true }).setView([20, 20], 2);
+
+// =========================================================
+// 1-0) 한국어 라벨 지도 (MapLibre 벡터 지도)
+//   - OpenFreeMap이라는 무료 벡터 지도 데이터를 불러온 뒤,
+//     지명 표시 방식을 "한국어 이름(name:ko)이 있으면 한국어로,
+//     없으면 원래 이름으로" 보이도록 스타일을 수정합니다.
+//   - 인터넷 연결이 필요하며, 실패 시 예전 방식(영문/현지어 지도)으로 대체됩니다.
+// =========================================================
+function 한국어라벨로_바꾸기(style){
+  style.layers.forEach(function(layer){
+    if(layer.layout && layer.layout['text-field']){
+      var 텍스트설정 = JSON.stringify(layer.layout['text-field']);
+      if(텍스트설정.indexOf('"name"') !== -1){
+        layer.layout['text-field'] = ['coalesce', ['get','name:ko'], ['get','name']];
+      }
+    }
+  });
+  return style;
+}
+
+fetch('https://tiles.openfreemap.org/styles/liberty')
+  .then(function(res){ return res.json(); })
+  .then(function(style){
+    L.maplibreGL({ style: 한국어라벨로_바꾸기(style) }).addTo(map);
+  })
+  .catch(function(err){
+    console.log("한국어 벡터 지도를 불러오지 못해 기본 지도로 대체합니다:", err);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors', maxZoom: 10
+    }).addTo(map);
+  });
+
+// =========================================================
+// 1-1) 판의 경계선 표시
+//   출처: Peter Bird(2003) 논문을 GeoJSON으로 변환한 공개 데이터셋
+//   (fraxen/tectonicplates, Open Data Commons Attribution License)
+//   인터넷에서 실시간으로 불러오므로, GitHub Pages 등 온라인 환경에서만 정상 표시됩니다.
+// =========================================================
+fetch('https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json')
+  .then(function(res){ return res.json(); })
+  .then(function(geo){
+    L.geoJSON(geo, {
+      style: { color:"#8e44ad", weight:2, dashArray:"4,4", opacity:0.85 }
+    }).addTo(map);
+  })
+  .catch(function(err){
+    console.log("판 경계 데이터를 불러오지 못했습니다:", err);
+  });
+
+// =========================================================
+// 2) 샘플 데이터 : 대표적인 지진 10건 (※ 실습용 예시 데이터입니다.
+//    실제 수업용으로 쓰기 전엔 USGS 자료로 검증/보완이 필요합니다)
+// =========================================================
+var 지진목록 = [
+  // --- 환태평양 조산대(불의 고리) ---
+  { 이름:"2011 도호쿠 대지진", lat:38.30, lng:142.37, 날짜:"2011.03.11", 규모:"9.0~9.1", 피해:"쓰나미 발생, 후쿠시마 원전 사고, 사망·실종 약 2만명" },
+  { 이름:"1923 관동 대지진(일본)", lat:35.40, lng:139.10, 날짜:"1923.09.01", 규모:"7.9", 피해:"도쿄·요코하마 화재 확산, 사망 약 10만명 이상" },
+  { 이름:"1995 고베 대지진(일본)", lat:34.68, lng:135.18, 날짜:"1995.01.17", 규모:"6.9", 피해:"고속도로 붕괴 등 대도시 직하형 피해" },
+  { 이름:"2016 구마모토 지진(일본)", lat:32.79, lng:130.73, 날짜:"2016.04.16", 규모:"7.3", 피해:"규슈 구마모토 지역 연속 강진" },
+  { 이름:"1999 치치 대지진(대만)", lat:23.85, lng:120.82, 날짜:"1999.09.21", 규모:"7.6", 피해:"대만 중부 광범위 피해" },
+  { 이름:"1990 루손 지진(필리핀)", lat:15.68, lng:121.17, 날짜:"1990.07.16", 규모:"7.7", 피해:"루손섬 다수 지역 피해" },
+  { 이름:"2018 팔루 지진(인도네시아)", lat:-0.89, lng:119.85, 날짜:"2018.09.28", 규모:"7.5", 피해:"쓰나미 및 지반액상화로 큰 피해" },
+  { 이름:"2004 인도양(수마트라) 대지진", lat:3.30, lng:95.85, 날짜:"2004.12.26", 규모:"9.1", 피해:"인도양 전역 쓰나미, 약 22만명 이상 사망" },
+  { 이름:"2009 파당 지진(인도네시아)", lat:-0.72, lng:100.08, 날짜:"2009.09.30", 규모:"7.6", 피해:"수마트라 서부 파당 지역 강타" },
+  { 이름:"2011 크라이스트처치 지진(뉴질랜드)", lat:-43.60, lng:172.70, 날짜:"2011.02.22", 규모:"6.3", 피해:"뉴질랜드 도심 큰 피해" },
+  { 이름:"2016 카이코우라 지진(뉴질랜드)", lat:-42.70, lng:173.05, 날짜:"2016.11.14", 규모:"7.8", 피해:"여러 단층이 연쇄 파열, 지형 변화" },
+  { 이름:"1960 발디비아 대지진(칠레)", lat:-38.24, lng:-73.05, 날짜:"1960.05.22", 규모:"9.5 (관측 사상 최대)", 피해:"칠레 남부 광범위 파괴, 태평양 전역 쓰나미" },
+  { 이름:"2010 마울레 지진(칠레)", lat:-35.85, lng:-72.70, 날짜:"2010.02.27", 규모:"8.8", 피해:"칠레 중남부 강타, 쓰나미 동반" },
+  { 이름:"2014 이키케 지진(칠레)", lat:-19.61, lng:-70.77, 날짜:"2014.04.01", 규모:"8.2", 피해:"칠레 북부 해안 강타" },
+  { 이름:"1970 안카시 지진(페루)", lat:-9.20, lng:-78.80, 날짜:"1970.05.31", 규모:"7.9", 피해:"대규모 암설류 동반, 약 6만명 사망" },
+  { 이름:"1985 멕시코시티 지진", lat:18.20, lng:-102.50, 날짜:"1985.09.19", 규모:"8.0", 피해:"멀리 떨어진 멕시코시티에서 큰 피해(연약지반 증폭)" },
+  { 이름:"2017 푸에블라 지진(멕시코)", lat:18.40, lng:-98.70, 날짜:"2017.09.19", 규모:"7.1", 피해:"멕시코시티 등 다수 건물 붕괴" },
+  { 이름:"1906 샌프란시스코 대지진", lat:37.75, lng:-122.55, 날짜:"1906.04.18", 규모:"약 7.9", 피해:"도시 대부분 화재로 소실, 사망 약 3천명 추정" },
+  { 이름:"1989 로마프리에타 지진(미국)", lat:37.04, lng:-121.88, 날짜:"1989.10.17", 규모:"6.9", 피해:"샌프란시스코 고속도로 붕괴" },
+  { 이름:"1994 노스리지 지진(미국)", lat:34.21, lng:-118.54, 날짜:"1994.01.17", 규모:"6.7", 피해:"로스앤젤레스 고속도로·건물 다수 붕괴" },
+  { 이름:"1964 알래스카 대지진(미국)", lat:61.02, lng:-147.65, 날짜:"1964.03.27", 규모:"9.2 (북미 관측 사상 최대)", 피해:"앵커리지 광범위 피해, 태평양 쓰나미" },
+  { 이름:"1952 캄차카 대지진(러시아)", lat:52.75, lng:160.06, 날짜:"1952.11.04", 규모:"9.0", 피해:"태평양 전역 쓰나미 발생" },
+
+  // --- 알프스-히말라야 조산대 ---
+  { 이름:"2015 네팔 지진", lat:28.23, lng:84.73, 날짜:"2015.04.25", 규모:"7.8", 피해:"에베레스트 눈사태 유발, 문화유산 다수 붕괴" },
+  { 이름:"2005 카슈미르 지진(파키스탄)", lat:34.49, lng:73.63, 날짜:"2005.10.08", 규모:"7.6", 피해:"파키스탄령 카슈미르 대규모 피해" },
+  { 이름:"2001 구자라트 지진(인도)", lat:23.40, lng:70.30, 날짜:"2001.01.26", 규모:"7.7", 피해:"인도 서부 구자라트주 대규모 피해" },
+  { 이름:"2008 쓰촨 대지진(중국)", lat:31.00, lng:103.40, 날짜:"2008.05.12", 규모:"7.9", 피해:"학교 등 건물 붕괴, 사망 약 7만명 이상" },
+  { 이름:"1990 만질 지진(이란)", lat:36.96, lng:49.41, 날짜:"1990.06.21", 규모:"7.4", 피해:"이란 북부 대규모 피해" },
+  { 이름:"2003 밤 지진(이란)", lat:29.00, lng:58.36, 날짜:"2003.12.26", 규모:"6.6", 피해:"고대도시 밤 유적 붕괴" },
+  { 이름:"1999 이즈미트 지진(튀르키예)", lat:40.77, lng:29.92, 날짜:"1999.08.17", 규모:"7.6", 피해:"튀르키예 북서부 대규모 피해" },
+  { 이름:"2023 카흐라만마라슈 지진(튀르키예)", lat:37.17, lng:37.03, 날짜:"2023.02.06", 규모:"7.8", 피해:"튀르키예·시리아 국경지역 대규모 피해" },
+  { 이름:"1980 이르피니아 지진(이탈리아)", lat:40.80, lng:15.30, 날짜:"1980.11.23", 규모:"6.9", 피해:"이탈리아 남부 대규모 피해" },
+  { 이름:"2009 라퀼라 지진(이탈리아)", lat:42.35, lng:13.40, 날짜:"2009.04.06", 규모:"6.3", 피해:"이탈리아 라퀼라 도심 피해" },
+
+  // --- 대서양 중앙해령 / 기타 ---
+  { 이름:"2000 남부 아이슬란드 지진", lat:63.90, lng:-20.60, 날짜:"2000.06", 규모:"6.5", 피해:"아이슬란드 남부 지진대 활동" },
+  { 이름:"1976 탕산 대지진(중국)", lat:39.63, lng:118.18, 날짜:"1976.07.28", 규모:"7.6", 피해:"20세기 사망자 최다 지진 중 하나(판 내부형 지진)" },
+  { 이름:"2010 아이티 지진", lat:18.46, lng:-72.53, 날짜:"2010.01.12", 규모:"7.0", 피해:"수도 포르토프랭스 초토화, 사망 약 20만명 이상" },
+
+  // --- 추가 지진 데이터 ---
+  { 이름:"1960 그랑드 카우스 지진(칠레)", lat:-48.26, lng:-74.72, 날짜:"1960.05.22", 규모:"8.0~8.2", 피해:"칠레 남부 해안 강타" },
+  { 이름:"2004 스마트라 남단 지진", lat:2.07, lng:97.01, 날짜:"2004.12.26", 규모:"7.3", 피해:"인도네시아 남서부" },
+  { 이름:"2011 혼슈 지진(일본)", lat:38.32, lng:141.88, 날짜:"2011.04.07", 규모:"7.1", 피해:"도호쿠 지역 강진" },
+  { 이름:"2012 인도양 지진(인도)", lat:8.66, lng:93.46, 날짜:"2012.04.11", 규모:"8.6", 피해:"인도양 일대 강진" },
+  { 이름:"2014 칠레 남부 지진", lat:-46.66, lng:-74.49, 날짜:"2014.04.01", 규모:"7.0", 피해:"칠레 페타고니아 지역" },
+  { 이름:"2005 수마트라 북부 지진", lat:2.08, lng:97.01, 날짜:"2005.03.28", 규모:"8.6", 피해:"인도네시아 서부 강진, 쓰나미" },
+  { 이름:"2007 벵갈만 지진(인도)", lat:15.32, lng:93.84, 날짜:"2007.09.12", 규모:"8.4", 피해:"인도양 일대" },
+  { 이름:"2013 오호츠크해 지진(러시아)", lat:54.87, lng:153.19, 날짜:"2013.05.24", 규모:"8.3", 피해:"판 내부형 심부 지진" },
+  { 이름:"2016 에콰도르 지진", lat:0.38, lng:-78.46, 날짜:"2016.04.16", 규모:"7.8", 피해:"에콰도르 해안 강타" },
+  { 이름:"2012 인도양 서부 지진", lat:-2.34, lng:90.95, 날짜:"2012.01.10", 규모:"7.3", 피해:"인도양 중앙해령 일대" }
+
+  // --- 중앙아메리카·카리브해 판 경계 ---
+  { 이름:"1972 마나과 지진(니카라과)", lat:12.15, lng:-86.25, 날짜:"1972.12.23", 규모:"6.3", 피해:"수도 마나과 대부분 파괴" },
+  { 이름:"2001 엘살바도르 지진", lat:13.05, lng:-88.66, 날짜:"2001.01.13", 규모:"7.7", 피해:"대규모 산사태로 큰 인명피해" },
+  { 이름:"1946 도미니카공화국 지진", lat:19.70, lng:-69.00, 날짜:"1946.08.04", 규모:"8.0", 피해:"카리브해 대규모 지진, 쓰나미 동반" },
+
+  // --- 남아메리카 서안 추가 ---
+  { 이름:"1868 아리카 지진(페루·칠레)", lat:-18.50, lng:-70.30, 날짜:"1868.08.13", 규모:"약 8.5", 피해:"국경 지역 대규모 쓰나미" },
+  { 이름:"2001 아레키파 지진(페루)", lat:-16.30, lng:-73.60, 날짜:"2001.06.23", 규모:"8.4", 피해:"페루 남부 대규모 피해" },
+  { 이름:"2007 피스코 지진(페루)", lat:-13.50, lng:-76.10, 날짜:"2007.08.15", 규모:"8.0", 피해:"해안 도시 피스코 큰 피해" },
+  { 이름:"1932 할리스코 지진(멕시코)", lat:19.50, lng:-104.30, 날짜:"1932.06.03", 규모:"8.2", 피해:"멕시코 서부 해안 강타" },
+
+  // --- 남태평양 섬호(추가) ---
+  { 이름:"2007 솔로몬제도 지진", lat:-8.48, lng:157.04, 날짜:"2007.04.02", 규모:"8.1", 피해:"솔로몬제도 일대 쓰나미 발생" },
+  { 이름:"2009 사모아 지진", lat:-15.49, lng:-172.10, 날짜:"2009.09.29", 규모:"8.1", 피해:"사모아·통가 해역 쓰나미" }
+];
+
+// =========================================================
+// 3) 샘플 데이터 : 대표적인 화산 6건 (※ 실습용 예시 데이터)
+// =========================================================
+var 화산목록 = [
+  // --- 환태평양 조산대(불의 고리) ---
+  { 이름:"탐보라 화산 (인도네시아)", lat:-8.25, lng:118.00, 날짜:"1815년", 규모:"VEI 7 (역사상 최대급)", 피해:"이듬해 '여름이 없는 해'로 전세계 기후에 영향" },
+  { 이름:"크라카타우 화산 (인도네시아)", lat:-6.10, lng:105.42, 날짜:"1883.08.27", 규모:"VEI 6", 피해:"화산 붕괴로 대규모 쓰나미, 약 3.6만명 사망" },
+  { 이름:"머라피 화산 (인도네시아)", lat:-7.54, lng:110.45, 날짜:"2010년 등 반복 분화", 규모:"VEI 4", 피해:"자바섬, 세계에서 가장 활발한 화산 중 하나" },
+  { 이름:"시나붕 화산 (인도네시아)", lat:3.17, lng:98.39, 날짜:"2013년~ 활동 재개", 규모:"VEI 2~3", 피해:"수마트라, 수백 년 휴면 후 재분화" },
+  { 이름:"피나투보 화산 (필리핀)", lat:15.13, lng:120.35, 날짜:"1991.06.15", 규모:"VEI 6", 피해:"20세기 두 번째로 큰 분화, 전지구 기온 일시 하강" },
+  { 이름:"마욘 화산 (필리핀)", lat:13.26, lng:123.69, 날짜:"지속적 반복 분화", 규모:"VEI 2~4", 피해:"필리핀에서 가장 자주 분화하는 화산" },
+  { 이름:"운젠 화산 (일본)", lat:32.76, lng:130.30, 날짜:"1991년", 규모:"VEI 2", 피해:"화쇄류로 다수 사망자 발생" },
+  { 이름:"사쿠라지마 화산 (일본)", lat:31.59, lng:130.66, 날짜:"현재도 지속 분화 중", 규모:"VEI 2 (소규모 반복)", 피해:"가고시마 인근, 세계 최다 분화 화산 중 하나" },
+  { 이름:"세인트헬렌스 화산 (미국)", lat:46.20, lng:-122.18, 날짜:"1980.05.18", 규모:"VEI 5", 피해:"산 정상부 붕괴, 화쇄류로 주변 삼림 초토화" },
+  { 이름:"레드아우트 화산 (미국, 알래스카)", lat:60.48, lng:-152.75, 날짜:"2009년", 규모:"VEI 3", 피해:"알래스카 주요 활화산" },
+  { 이름:"포포카테페틀 화산 (멕시코)", lat:19.02, lng:-98.62, 날짜:"지속적 분화", 규모:"VEI 2~3", 피해:"멕시코시티 인근 활화산, 지속 관측 중" },
+  { 이름:"콜리마 화산 (멕시코)", lat:19.51, lng:-103.62, 날짜:"지속적 분화", 규모:"VEI 3~4", 피해:"멕시코 대표 활화산 중 하나" },
+  { 이름:"네바도델루이스 화산 (콜롬비아)", lat:4.90, lng:-75.32, 날짜:"1985.11.13", 규모:"VEI 3", 피해:"화산이류(라하르)로 아르메로 마을 매몰, 약 2.3만명 사망" },
+  { 이름:"코토팍시 화산 (에콰도르)", lat:-0.68, lng:-78.44, 날짜:"2015년 등", 규모:"VEI 2~3", 피해:"에콰도르 대표 활화산" },
+  { 이름:"비야리카 화산 (칠레)", lat:-39.42, lng:-71.94, 날짜:"2015년", 규모:"VEI 2~3", 피해:"칠레 대표 활화산 중 하나" },
+  { 이름:"차이텐 화산 (칠레)", lat:-42.83, lng:-72.65, 날짜:"2008년", 규모:"VEI 4", 피해:"약 9천년 휴면 후 갑작스런 분화" },
+  { 이름:"푸예우에-코르돈카우예 화산 (칠레)", lat:-40.59, lng:-72.12, 날짜:"2011년", 규모:"VEI 4", 피해:"화산재로 남미·오세아니아 항공 운항 영향" },
+  { 이름:"루아페후 화산 (뉴질랜드)", lat:-39.28, lng:175.57, 날짜:"1995~1996년", 규모:"VEI 3", 피해:"뉴질랜드 북섬 대표 활화산" },
+  { 이름:"라바울 화산 (파푸아뉴기니)", lat:-4.27, lng:152.20, 날짜:"1994년", 규모:"VEI 4", 피해:"인근 마을이 화산재로 뒤덮임" },
+
+  // --- 대서양 중앙해령(확장형 경계) ---
+  { 이름:"에이야퍄들라이외퀴들 화산 (아이슬란드)", lat:63.63, lng:-19.60, 날짜:"2010.04", 규모:"VEI 4", 피해:"유럽 항공대란(화산재로 항공기 운항 중단)" },
+  { 이름:"바르다르붕가 화산 (아이슬란드)", lat:64.63, lng:-17.53, 날짜:"2014~2015년", 규모:"VEI 3", 피해:"아이슬란드 역사상 손꼽히는 대규모 용암 분출" },
+  { 이름:"파그라달스피아들 화산 (아이슬란드)", lat:63.90, lng:-22.27, 날짜:"2021년~", 규모:"VEI 1", 피해:"약 800년 만에 재분화" },
+
+  // --- 알프스-히말라야대 및 열점(참고용) ---
+  { 이름:"에트나 화산 (이탈리아)", lat:37.75, lng:15.00, 날짜:"지속적 분화", 규모:"VEI 1~2 (빈번)", 피해:"유럽에서 가장 활발한 화산" },
+  { 이름:"스트롬볼리 화산 (이탈리아)", lat:38.79, lng:15.21, 날짜:"거의 상시 분화", 규모:"VEI 1~2", 피해:"수백 년간 거의 쉬지 않고 분화 중" },
+  { 이름:"니라공고 화산 (콩고민주공화국)", lat:-1.52, lng:29.25, 날짜:"2002년, 2021년", 규모:"VEI 1~2", 피해:"동아프리카 열곡대, 용암호 보유" },
+  { 이름:"킬라우에아 화산 (미국, 하와이)", lat:19.42, lng:-155.29, 날짜:"지속적 분화", 규모:"VEI 0~1 (용암 분출형)", 피해:"열점(hot spot) 화산 — 판 경계가 아닌 예외 사례로 참고" },
+
+  // --- 카리브해·중앙아메리카 판 경계 ---
+  { 이름:"수프리에르 힐스 화산 (몬트세랫)", lat:16.72, lng:-62.18, 날짜:"1995년~현재 지속", 규모:"VEI 3", 피해:"섬 남부 마을 대부분 파괴, 장기간 지속 분화" },
+  { 이름:"아레날 화산 (코스타리카)", lat:10.46, lng:-84.70, 날짜:"1968년 등", 규모:"VEI 3~4", 피해:"코스타리카 대표 활화산" },
+  { 이름:"산타마리아 화산 (과테말라)", lat:14.76, lng:-91.55, 날짜:"1902년(대분화), 이후 지속 분화", 규모:"VEI 6 (1902년)", 피해:"20세기 초 대규모 분화, 현재도 활동 중" },
+
+  // --- 캄차카·쿠릴열도(환태평양 북서부) ---
+  { 이름:"사리체프 화산 (러시아, 쿠릴열도)", lat:48.09, lng:153.20, 날짜:"2009년", 규모:"VEI 4", 피해:"쿠릴열도 화산호 활동 사례" },
+
+  // --- 동아프리카 열곡대(확장형 경계) ---
+  { 이름:"에르타 알레 화산 (에티오피아)", lat:13.60, lng:40.67, 날짜:"지속적 활동", 규모:"VEI 0~1", 피해:"동아프리카 열곡대, 상시 용암호 보유" },
+  { 이름:"올도이뇨 렝가이 화산 (탄자니아)", lat:-2.75, lng:35.91, 날짜:"지속적 분화", 규모:"VEI 1", 피해:"세계에서 유일하게 탄산염 용암을 분출하는 화산" },
+
+  // --- 추가 화산 데이터 ---
+  { 이름:"하드 화산 (미국, 알래스카)", lat:59.67, lng:-152.65, 날짜:"2009년", 규모:"VEI 2", 피해:"알래스카 활화산" },
+  { 이름:"키스카 화산 (미국, 알래스카)", lat:52.13, lng:-177.58, 날짜:"역사적 분화", 규모:"VEI 1~2", 피해:"알류샨 열도 화산" },
+  { 이름:"팍스 화산 (미국, 알래스카)", lat:54.10, lng:-131.70, 날짜:"1904~1905년", 규모:"VEI 5", 피해:"알래스카 대규모 분화" },
+  { 이름:"야스우르 화산 (바누아투)", lat:-19.53, lng:169.44, 날짜:"지속적 분화", 규모:"VEI 1~2", 피해:"남태평양 반둔 섬 활화산" },
+  { 이름:"라스카르 화산 (칠레)", lat:-23.73, lng:-67.73, 날짜:"1993년 등", 규모:"VEI 4", 피해:"칠레 아타카마 사막 근처 활화산" },
+  { 이름:"톤가 화산 (톤가)", lat:-21.16, lng:-175.04, 날짜:"2022년 대분화", 규모:"VEI 5", 피해:"남태평양 대규모 수중 화산" },
+  { 이름:"펠레산 화산 (마르티니크)", lat:14.82, lng:-61.18, 날짜:"1902년 등", 규모:"VEI 4", 피해:"카리브해 위험한 활화산" },
+  { 이름:"사고산 화산 (필리핀)", lat:6.55, lng:123.76, 날짜:"1993년 등", 규모:"VEI 2~3", 피해:"민다나오 활화산" }
+];
+
+// =========================================================
+// 4) 지도 위에 점 찍기 (지진=주황, 화산=빨강)
+//    Leaflet의 LayerGroup으로 묶어서 버튼으로 껐다/켰다 합니다
+// =========================================================
+var 지진레이어 = L.layerGroup();
+var 화산레이어 = L.layerGroup();
+
+지진목록.forEach(function(d){
+  var m = L.circleMarker([d.lat, d.lng], {
+    radius:8, color:"#a85413", weight:2, fillColor:"#ffb703", fillOpacity:0.85
+  }).bindPopup(
+    "<div class='info-box-header'>🟠 " + d.이름 + "</div>" +
+    "<div class='info-box-body'>" +
+      "발생일: " + d.날짜 + "<br>" +
+      "위치(위도,경도): " + d.lat + ", " + d.lng + "<br>" +
+      "규모: " + d.규모 + "<br>" +
+      "피해: " + d.피해 +
+    "</div>",
+    { className:"quake-popup" }
+  ).addTo(지진레이어);
+  m.on('mouseover', function(){ this.setRadius(12); });
+  m.on('mouseout', function(){ this.setRadius(8); });
+});
+
+화산목록.forEach(function(d){
+  var m = L.circleMarker([d.lat, d.lng], {
+    radius:8, color:"#7f1717", weight:2, fillColor:"#e63946", fillOpacity:0.85
+  }).bindPopup(
+    "<div class='info-box-header'>🔺 " + d.이름 + "</div>" +
+    "<div class='info-box-body'>" +
+      "분화일: " + d.날짜 + "<br>" +
+      "위치(위도,경도): " + d.lat + ", " + d.lng + "<br>" +
+      "규모: " + d.규모 + "<br>" +
+      "피해: " + d.피해 +
+    "</div>",
+    { className:"volcano-popup" }
+  ).addTo(화산레이어);
+  m.on('mouseover', function(){ this.setRadius(12); });
+  m.on('mouseout', function(){ this.setRadius(8); });
+});
+
+// =========================================================
+// 5) 버튼 3개 동작 : 지진 / 화산 / 모두삭제
+// =========================================================
+var 지진켜짐 = false;
+var 화산켜짐 = false;
+
+function 토글지진(){
+  지진켜짐 = !지진켜짐;
+  if(지진켜짐){ map.addLayer(지진레이어); } else { map.removeLayer(지진레이어); }
+  document.getElementById('btnQuake').classList.toggle('active', 지진켜짐);
+}
+
+function 토글화산(){
+  화산켜짐 = !화산켜짐;
+  if(화산켜짐){ map.addLayer(화산레이어); } else { map.removeLayer(화산레이어); }
+  document.getElementById('btnVolcano').classList.toggle('active', 화산켜짐);
+}
+
+function 모두삭제(){
+  map.removeLayer(지진레이어);
+  map.removeLayer(화산레이어);
+  지진켜짐 = false; 화산켜짐 = false;
+  document.getElementById('btnQuake').classList.remove('active');
+  document.getElementById('btnVolcano').classList.remove('active');
+}
+
+// =========================================================
+// 6) 3번 문항 채점 : 정답은 "판의 경계"
+// =========================================================
+var 정답 = "판의 경계";
+var 피드백타이머;
+
+function 선택지고르기(버튼, 값){
+  // 이전에 선택했던 버튼들의 색을 초기화
+  document.querySelectorAll('.choice-btn').forEach(function(b){
+    b.classList.remove('selected-correct', 'selected-wrong');
+  });
+  clearTimeout(피드백타이머);
+
+  var 피드백영역 = document.getElementById('feedback3');
+  // 첫 번째 빈칸에만 선택한 답을 채우고, 두 번째 빈칸("~는?")은 항상 비워둠
+  document.getElementById('blank3').textContent = 값;
+
+  if(값 === 정답){
+    버튼.classList.add('selected-correct');
+    피드백영역.innerHTML = '<span class="feedback-correct">⭕ 정답입니다!</span>';
+    피드백타이머 = setTimeout(function(){
+      피드백영역.innerHTML = '';
+    }, 3000);
+  } else {
+    버튼.classList.add('selected-wrong');
+    피드백영역.innerHTML =
+      '<span class="feedback-wrong">❌</span>' +
+      '<button class="retry-btn" onclick="다시풀기()">다시 생각해볼까요?</button>';
+  }
+}
+
+function 다시풀기(){
+  document.querySelectorAll('.choice-btn').forEach(function(b){
+    b.classList.remove('selected-correct', 'selected-wrong');
+  });
+  document.getElementById('blank3').innerHTML = '&nbsp;';
+  document.getElementById('feedback3').innerHTML = '';
+}
+
+// =========================================================
+// 7) 학습지 내용을 PDF로 저장
+//    - 지도·버튼 부분은 최신 지도 기술(WebGL) 특성상 화면 캡처가 불안정해서 제외하고,
+//      제목 + 학습지(답변 입력칸, 채점 결과) 부분만 캡처합니다.
+//    - textarea에 입력한 글자가 캡처에 그대로 반영되도록,
+//      캡처 직전에 입력값을 화면에 보이는 형태로 잠깐 맞춰줍니다.
+// =========================================================
+function 저장하기_PDF(){
+  var 상태표시 = document.getElementById('pdfStatus');
+  var 지도박스 = document.getElementById('mapBox');
+  var 버튼줄 = document.getElementById('buttonRow');
+  var pdf버튼 = document.getElementById('pdfBtn');
+
+  상태표시.textContent = "PDF 만드는 중입니다... 잠시만 기다려 주세요.";
+
+  // 캡처에 방해되는 지도/버튼 영역과 PDF버튼 자체는 잠깐 숨김
+  지도박스.style.display = 'none';
+  버튼줄.style.display = 'none';
+  pdf버튼.style.display = 'none';
+  상태표시.style.display = 'none';
+
+  html2canvas(document.querySelector('.sheet'), { scale: 2 }).then(function(canvas){
+    // 숨겼던 요소 다시 표시
+    지도박스.style.display = '';
+    버튼줄.style.display = '';
+    pdf버튼.style.display = '';
+    상태표시.style.display = '';
+
+    var imgData = canvas.toDataURL('image/png');
+    var jsPDF = window.jspdf.jsPDF;
+    var pdf = new jsPDF('p', 'pt', 'a4');
+
+    var 페이지폭 = pdf.internal.pageSize.getWidth();
+    var 페이지높이 = pdf.internal.pageSize.getHeight();
+    var 이미지폭 = 페이지폭;
+    var 이미지높이 = canvas.height * 이미지폭 / canvas.width;
+
+    var 남은높이 = 이미지높이;
+    var 위치 = 0;
+
+    pdf.addImage(imgData, 'PNG', 0, 위치, 이미지폭, 이미지높이);
+    남은높이 -= 페이지높이;
+
+    while(남은높이 > 0){
+      위치 = 남은높이 - 이미지높이;
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, 위치, 이미지폭, 이미지높이);
+      남은높이 -= 페이지높이;
+    }
+
+    pdf.save('지진화산_학습지.pdf');
+    상태표시.textContent = "";
+  }).catch(function(err){
+    지도박스.style.display = '';
+    버튼줄.style.display = '';
+    pdf버튼.style.display = '';
+    상태표시.style.display = '';
+    상태표시.textContent = "PDF 생성 중 오류가 발생했습니다.";
+    console.log(err);
+  });
+}
+</script>
+</body>
+</html>
+
+
